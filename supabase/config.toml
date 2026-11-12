@@ -1,0 +1,8 @@
+[functions.admin-api]
+verify_jwt = true
+
+[functions.public-settings]
+verify_jwt = false
+
+[functions.email-webhook]
+verify_jwt = false
