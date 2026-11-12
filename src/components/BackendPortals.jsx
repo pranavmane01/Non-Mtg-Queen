@@ -57,28 +57,33 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [profileName, setProfileName] = useState(currentUser.fullName || '')
+  const [profileMobile, setProfileMobile] = useState(currentUser.mobile || '')
+  const [savingProfile, setSavingProfile] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!supabase) return
     setError('')
-    const [submissionResult, membershipResult, notificationResult] = await Promise.all([
-      supabase.from('trader_submissions').select('id, broker_name, broker_email, trader_id, screenshot_path, status, rejection_reason, resubmission_requested, submitted_at').eq('user_id', currentUser.id).order('submitted_at', { ascending: false }),
-      supabase.from('vip_memberships').select('status').eq('user_id', currentUser.id).maybeSingle(),
-      supabase.from('notifications').select('id, title, message, is_read, created_at').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(30),
-    ])
-    const queryError = submissionResult.error || membershipResult.error || notificationResult.error
-    if (queryError) {
-      setError(queryError.message)
+    try {
+      const [submissionResult, membershipResult, notificationResult] = await Promise.all([
+        supabase.from('trader_submissions').select('id, broker_name, broker_email, trader_id, screenshot_path, status, rejection_reason, resubmission_requested, submitted_at').eq('user_id', currentUser.id).order('submitted_at', { ascending: false }),
+        supabase.from('vip_memberships').select('status').eq('user_id', currentUser.id).maybeSingle(),
+        supabase.from('notifications').select('id, title, message, is_read, created_at').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(30),
+      ])
+      const queryError = submissionResult.error || membershipResult.error || notificationResult.error
+      if (queryError) throw queryError
+
+      const rows = submissionResult.data ?? []
+      const nextMembershipStatus = membershipResult.data?.status ?? rows[0]?.status ?? 'NOT_SUBMITTED'
+      setSubmissions(rows)
+      setMembershipStatus(nextMembershipStatus)
+      setCurrentUser((user) => user?.id === currentUser.id ? { ...user, vipStatus: nextMembershipStatus } : user)
+      setNotifications(notificationResult.data ?? [])
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : 'Could not load your member dashboard.')
+    } finally {
       setLoading(false)
-      return
     }
-    const rows = submissionResult.data ?? []
-    const nextMembershipStatus = membershipResult.data?.status ?? rows[0]?.status ?? 'NOT_SUBMITTED'
-    setSubmissions(rows)
-    setMembershipStatus(nextMembershipStatus)
-    setCurrentUser((user) => user?.id === currentUser.id ? { ...user, vipStatus: nextMembershipStatus } : user)
-    setNotifications(notificationResult.data ?? [])
-    setLoading(false)
   }, [currentUser.id, setCurrentUser])
 
   useEffect(() => {
@@ -198,6 +203,33 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
     setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, is_read: true } : item))
   }
 
+  const saveProfile = async (event) => {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+    const fullName = profileName.trim()
+    const mobile = profileMobile.trim()
+    if (!fullName || fullName.length > 120 || mobile.length > 40) {
+      setError('Enter a name of 1-120 characters and a mobile number of no more than 40 characters.')
+      return
+    }
+
+    setSavingProfile(true)
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ full_name: fullName, mobile: mobile || null })
+        .eq('id', currentUser.id)
+      if (updateError) throw updateError
+      setCurrentUser((user) => user?.id === currentUser.id ? { ...user, fullName, mobile } : user)
+      setSuccess('Profile details saved.')
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : 'Could not save your profile details.')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#05080B] text-slate-100">
       <div className="mx-auto flex max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -237,6 +269,18 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
               </div>
             ))}
           </div>
+
+          <section className={cardClass}>
+            <h2 className="text-xl font-bold text-white">Profile details</h2>
+            <p className="mt-2 text-sm text-slate-300">Update your name and mobile number. Your email and Member ID are managed by the account system.</p>
+            <form onSubmit={saveProfile} className="mt-5 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <Field label="Full Name" value={profileName} onChange={setProfileName} required disabled={savingProfile} />
+              <Field label="Mobile Number" value={profileMobile} onChange={setProfileMobile} disabled={savingProfile} />
+              <button type="submit" disabled={savingProfile} className="rounded-full bg-emerald-400 px-5 py-3 font-bold text-slate-950 disabled:opacity-60">
+                {savingProfile ? 'SAVING…' : 'SAVE PROFILE'}
+              </button>
+            </form>
+          </section>
 
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="space-y-6">

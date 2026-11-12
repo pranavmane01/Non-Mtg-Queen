@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { invokeAdmin, isSupabaseConfigured, supabase } from './lib/supabase'
+import { invokeAdmin, isSupabaseConfigured, supabase, supabaseConfigError } from './lib/supabase'
 import {
   AdminPanel,
   MemberDashboard as SecureMemberDashboard,
@@ -52,7 +52,7 @@ function App() {
   const [serviceMessage, setServiceMessage] = useState(
     isSupabaseConfigured
       ? 'Checking Supabase database and public settings…'
-      : 'Backend is not configured. Add Supabase project URL and publishable key to enable member and admin features.',
+      : supabaseConfigError,
   )
 
   useEffect(() => {
@@ -155,6 +155,21 @@ function App() {
     }
   }, [])
 
+  const adminPanel = (
+    <AdminRoute user={currentUser} authReady={authReady}>
+      <AdminPanel
+        currentUser={currentUser}
+        setCurrentUser={setCurrentUser}
+        updatePublicSettings={(saved) => setSettings({
+          brandName: saved.brand_name || DEFAULT_SETTINGS.brandName,
+          publicTelegramUrl: saved.public_telegram_url || TELEGRAM_URL,
+          brokerReferralUrl: saved.broker_referral_url || BROKER_URL,
+          supportEmail: saved.support_email || DEFAULT_SETTINGS.supportEmail,
+        })}
+      />
+    </AdminRoute>
+  )
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-[#05080B] text-white antialiased">
@@ -167,6 +182,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage settings={settings} />} />
           <Route path="/login" element={<LoginPage setCurrentUser={setCurrentUser} />} />
+          <Route path="/admin/login" element={currentUser?.role === 'admin' ? <Navigate to="/admin" replace /> : <LoginPage setCurrentUser={setCurrentUser} adminOnly />} />
           <Route path="/register" element={<RegisterPage backendReady={backendReady} />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/admin/setup" element={<ProtectedRoute user={currentUser} authReady={authReady}><AdminSetupPage /></ProtectedRoute>} />
@@ -190,22 +206,8 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute user={currentUser} authReady={authReady}>
-                <AdminPanel
-                  currentUser={currentUser}
-                  setCurrentUser={setCurrentUser}
-                  updatePublicSettings={(saved) => setSettings({
-                    brandName: saved.brand_name || DEFAULT_SETTINGS.brandName,
-                    publicTelegramUrl: saved.public_telegram_url || TELEGRAM_URL,
-                    brokerReferralUrl: saved.broker_referral_url || BROKER_URL,
-                    supportEmail: saved.support_email || DEFAULT_SETTINGS.supportEmail,
-                  })} />
-              </AdminRoute>
-            }
-          />
+          <Route path="/admin" element={adminPanel} />
+          <Route path="/admin/:section" element={adminPanel} />
           <Route path="/privacy-policy" element={<LegalPage type="privacy" />} />
           <Route path="/terms" element={<LegalPage type="terms" />} />
           <Route path="/risk-disclaimer" element={<LegalPage type="risk" />} />
@@ -227,7 +229,7 @@ function ProtectedRoute({ user, authReady, children }) {
 function AdminRoute({ user, authReady, children }) {
   if (!authReady) return <LoadingPage />
   if (!user || user.role !== 'admin') {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/admin/login" replace />
   }
   return children
 }
@@ -553,7 +555,7 @@ function SectionHeader({ eyebrow, heading, description }) {
   )
 }
 
-function LoginPage({ setCurrentUser }) {
+function LoginPage({ setCurrentUser, adminOnly = false }) {
   const navigate = useNavigate()
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
@@ -608,6 +610,13 @@ function LoginPage({ setCurrentUser }) {
         vipStatus: profile.vip_status,
         createdAt: profile.created_at,
       }
+      if (adminOnly && account.role !== 'admin') {
+        const { error: signOutError } = await supabase.auth.signOut()
+        if (signOutError) throw signOutError
+        setCurrentUser(null)
+        setError('This account does not have administrator access.')
+        return
+      }
       setCurrentUser(account)
       navigate(account.role === 'admin' ? '/admin' : '/dashboard')
     } catch (authError) {
@@ -618,7 +627,7 @@ function LoginPage({ setCurrentUser }) {
   }
 
   return (
-    <AuthShell title={resetMode ? 'Reset your password' : 'Welcome back'} subtitle={resetMode ? 'Request a secure password reset link' : 'Secure member login'}>
+    <AuthShell title={resetMode ? 'Reset your password' : adminOnly ? 'Administrator login' : 'Welcome back'} subtitle={resetMode ? 'Request a secure password reset link' : adminOnly ? 'Secure sign-in for authorized administrators' : 'Secure member login'}>
       <form onSubmit={handleSubmit} className="space-y-5">
         <Field label="Email Address" type="email" value={form.email} onChange={(value) => setForm((prev) => ({ ...prev, email: value }))} />
         {!resetMode && <Field label="Password" type="password" value={form.password} onChange={(value) => setForm((prev) => ({ ...prev, password: value }))} />}
@@ -632,7 +641,7 @@ function LoginPage({ setCurrentUser }) {
       </form>
 
       <div className="mt-6 flex items-center justify-between text-sm text-slate-300">
-        <Link to="/register" className="text-emerald-300 hover:text-emerald-200">Create account</Link>
+        {adminOnly ? <Link to="/login" className="text-emerald-300 hover:text-emerald-200">Member login</Link> : <Link to="/register" className="text-emerald-300 hover:text-emerald-200">Create account</Link>}
         <button type="button" onClick={() => { setResetMode((active) => !active); setError(''); setNotice('') }} className="text-slate-300 hover:text-white">
           {resetMode ? 'Back to login' : 'Forgot password?'}
         </button>

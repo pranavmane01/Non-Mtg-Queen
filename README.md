@@ -1,6 +1,6 @@
 # NON MTG QUEEN
 
-Responsive React + Vite + Tailwind community frontend backed by Supabase Auth, PostgreSQL, private Storage, and Supabase Edge Functions. The frontend is not usable for authenticated actions until a real Supabase project has been configured.
+Responsive React + Vite + Tailwind community website backed by Supabase Auth, PostgreSQL, private Storage, and Supabase Edge Functions. The Pages frontend is deployed at [non-mtg-queen.pages.dev](https://non-mtg-queen.pages.dev), connected to Supabase project `xihesbbbdvvhzvaibzvb`.
 
 ## Local frontend
 
@@ -10,22 +10,32 @@ Responsive React + Vite + Tailwind community frontend backed by Supabase Auth, P
 
 ## Supabase deployment
 
-Install the Supabase CLI and link this folder to your project. Apply the database migrations before deploying the existing Edge Functions:
+The initial schema, self-review hardening, and service-role grants were applied to the live project in the Supabase Dashboard. The two later migrations below are still pending and must be applied before deploying the matching backend functions:
 
 ```powershell
 supabase login
-supabase link --project-ref YOUR_PROJECT_REF
-supabase db push
-supabase functions deploy public-settings
-supabase functions deploy admin-api
-supabase functions deploy email-webhook
+supabase link --project-ref xihesbbbdvvhzvaibzvb
+supabase migration list
 ```
 
-The checked-in `supabase/config.toml` sets JWT verification on for `admin-api` and off for `public-settings` and `email-webhook`. Keep these settings when deploying; the latter two functions perform their own public-read or webhook-secret checks.
+Apply only these pending files in the Supabase Dashboard SQL Editor, in order:
 
-The migrations create the required tables, profile/member ID trigger, restricted RLS policies, review RPC, storage bucket, and private storage policies. The `20261111000100_prevent_self_review.sql` hardening migration prevents an administrator from reviewing their own submission and bounds review remarks. The `20261112000000_service_role_table_access.sql` migration grants the server-only `service_role` the least table privileges used by the Edge Functions; it does not grant those privileges to `anon` or `authenticated`. The `20261113000000_add_broker_email_to_submissions.sql` migration adds broker email to verification submissions while remaining safe for existing rows. The `20261114000000_add_vip_revocation.sql` migration adds an admin-authorized, atomic VIP revocation workflow and audit-history entry. The `trader-verification` bucket accepts private JPG, PNG, and WebP files up to 5 MB.
+1. `supabase/migrations/20261113000000_add_broker_email_to_submissions.sql`
+2. `supabase/migrations/20261114000000_add_vip_revocation.sql`
 
-To apply them in the Supabase Dashboard instead, open **SQL Editor** for the project and run `20261110000000_initial_schema.sql`, `20261111000100_prevent_self_review.sql`, `20261112000000_service_role_table_access.sql`, `20261113000000_add_broker_email_to_submissions.sql`, then `20261114000000_add_vip_revocation.sql`. Dashboard SQL Editor runs do not automatically populate the CLI migration history. If you later use `supabase db push`, the CLI may apply these files again; these migrations use repeatable create/replace, `IF NOT EXISTS`, and upsert operations for the objects they manage.
+Do not rerun the initial schema or hardening migrations on the live project unless you have checked their status first. Supabase Dashboard SQL Editor runs do not automatically populate CLI migration history; reconcile the migration history before using `supabase db push` to avoid reapplying already-installed migrations.
+
+The initial migration creates the tables, member ID trigger, RLS policies, review/bootstrap RPCs, private storage bucket and policies. The self-review hardening migration prevents administrators from reviewing their own submissions and limits remarks. The service-role grant migration limits privileged backend access to the required tables. The broker email migration adds a validated optional broker email field. The VIP revocation migration adds an atomic admin-only revocation action with an audit entry and notification. The `trader-verification` bucket accepts private JPG, PNG, and WebP files up to 5 MB.
+
+After applying the pending migrations, deploy the existing functions (do not create duplicates):
+
+```powershell
+supabase functions deploy admin-api --project-ref xihesbbbdvvhzvaibzvb
+supabase functions deploy email-webhook --project-ref xihesbbbdvvhzvaibzvb
+supabase functions deploy public-settings --project-ref xihesbbbdvvhzvaibzvb
+```
+
+The checked-in `supabase/config.toml` enables JWT verification for `admin-api` and disables gateway JWT verification for `public-settings` and `email-webhook`; the latter functions perform their own server-side checks. Preserve these settings. `admin-api` validates caller JWTs and admin roles, while `email-webhook` requires its dedicated `x-webhook-secret`.
 
 Supabase Edge Functions receive the project URL and server-only service role key from the Supabase runtime. Configure these additional secrets in the Supabase Dashboard (Edge Functions > Secrets):
 
@@ -40,7 +50,7 @@ Never set the service-role key, database password, Resend key, or either setup/w
 
 ### First administrator
 
-1. Enable email confirmations in Supabase Auth and set the site URL plus allowed redirect URLs for localhost and the production domain. Configure a custom SMTP provider (Resend) in Supabase Auth if branded confirmation and password reset messages are needed.
+1. In Supabase **Authentication > URL Configuration**, set the site URL to `https://non-mtg-queen.pages.dev` and add it, plus any development origin you use, to the redirect allowlist. Enable email confirmations. Configure SMTP separately if using Resend for Auth confirmation and password reset emails.
 2. Register the account that will be the owner, verify its email, and sign in.
 3. Configure `ADMIN_SETUP_SECRET` as a Supabase Edge Function secret.
 4. Visit `/admin/setup` while signed in and enter that secret. The server promotes the account only if no admin exists; there is no public admin registration field.
@@ -68,41 +78,38 @@ Add the header `x-webhook-secret` with the same value configured as `DATABASE_WE
 
 ## Cloudflare Pages
 
-This workspace currently has no initialized Git repository or remote, so it must be connected to the repository you choose before Cloudflare Pages can import it. Example PowerShell commands (replace the remote URL with your repository):
+The GitHub repository is connected to the Pages project `non-mtg-queen`, with production branch `main`, automatic deployments enabled, build command `npm run build`, and output directory `dist`. Pages automatically serves the SPA entry point for nested routes when no top-level `404.html` is present; no custom `_redirects` file is needed.
 
-```powershell
-git init -b main
-git add --all
-git status --short
-git diff --cached --name-only
-git commit -m "Prepare NON MTG QUEEN website"
-git remote add origin YOUR_GIT_REMOTE_URL
-git push -u origin main
-```
+The production build variables are only:
 
-`.env` is ignored and `.env.example` is allowed. Before committing, confirm the staged file list does not contain `.env`, credentials, or local build output. In Cloudflare Pages, import that repository and set:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-- Framework preset: **Vite**
-- Build command: `npm run build`
-- Build output directory: `dist`
-- Production build variables: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` only
+Never add a service-role key, Resend key, admin setup secret, webhook secret, or database password to Cloudflare Pages variables or browser code. Add any custom domain to Supabase Auth's site URL/redirect allowlist before using it for authentication.
 
-The `public/_redirects` file preserves client-side React Router routes such as `/login`, `/admin`, and `/vip` on direct page loads and refreshes. Do not add Supabase service-role, Resend, admin setup, or webhook secrets to Cloudflare Pages; those belong only in Supabase Edge Function secrets. Add the deployed domain to Supabase Auth's site URL and redirect allowlist.
-
-Before connecting the Pages production branch, push the source and verify `npm ci`, `npm run lint`, and `npm run build` succeed. After Pages deploys, verify registration and password-reset redirect URLs against the production domain. Deploy the Supabase migrations and all three Edge Functions to the intended Supabase project separately; a successful Cloudflare build does not deploy database changes or Edge Functions.
+Push code changes to `main` to trigger an automatic Pages deployment. Verify the deployment status in Cloudflare Pages and test the home page and direct routes such as `/register`, `/admin/login`, and `/admin/settings`. A successful Pages build does not deploy database migrations or Edge Functions.
 
 ## Manual end-to-end verification
 
 Use separate, real accounts and a configured Supabase project; no demo/test credentials are shipped:
 
 1. Register a member and verify its email. Confirm a profile and unique `NMQ-` ID are created.
-2. Sign in, use password recovery, and confirm the reset flow.
+2. Sign in, update profile name/mobile, use password recovery, and confirm the reset flow.
 3. Submit a Trader ID with and without a JPG/PNG/WebP screenshot. Confirm the screenshot is private and a second pending submission is rejected.
 4. Create an ordinary second account and confirm it cannot list other profiles, change role/VIP fields, read admin settings, access admin actions, or retrieve the VIP invite.
-5. Bootstrap the first admin with the one-time secret, remove the secret, and sign in again.
+5. Bootstrap the first admin with the one-time secret, remove the secret, and sign in again. Confirm a member cannot access `/admin` or the admin API.
 6. Confirm the admin dashboard can search/filter members, see submission details, create a short-lived signed screenshot link, and view verification history.
 7. Approve a pending member. Confirm status/history/notification persistence, email result feedback, VIP page access, and private invite retrieval.
 8. For a separate pending member, reject with a reason and confirm the reason/email/notification. Request resubmission and confirm a new Trader ID submission is accepted.
-9. Test mobile layouts and verify unauthenticated requests to private functions fail.
+9. Revoke VIP access and confirm the member can no longer retrieve the invitation.
+10. Test mobile layouts and verify unauthenticated requests to private functions fail.
 
-Do not treat the backend as production-ready until this procedure succeeds against the actual Supabase and Resend configuration.
+## Current verification and remaining setup
+
+- **Verified:** Cloudflare Pages production build deployed successfully from GitHub. The live homepage connected to Supabase and loaded public settings; direct `/register` navigation worked.
+- **Verified locally:** `npm run build` succeeds. It reports an existing large JavaScript chunk warning.
+- **Not verified:** Real user registration, email verification, password reset, storage upload, admin bootstrap, review/revocation, VIP invite enforcement, and Resend delivery have not been tested end to end.
+- **Pending on Supabase:** apply the two migrations listed above, deploy the updated Edge Functions, configure Auth URLs/SMTP, and set `ADMIN_SETUP_SECRET`, `DATABASE_WEBHOOK_SECRET`, and (when email is enabled) `RESEND_API_KEY` plus `EMAIL_FROM` in Supabase Edge Function secrets.
+- **Environment limitation:** `npm run lint` currently cannot start because Windows Application Control blocks the installed Oxlint native binding. No reinstall was performed.
+
+Do not treat the backend as production-ready until the manual verification procedure succeeds against the real Supabase and Resend configuration.

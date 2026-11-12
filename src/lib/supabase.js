@@ -3,16 +3,34 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
-export const supabase = supabaseUrl && publishableKey
-  ? createClient(supabaseUrl, publishableKey, {
+let supabase = null
+let supabaseConfigError = ''
+
+if (!supabaseUrl || !publishableKey) {
+  supabaseConfigError = 'Backend is not configured. Add the Supabase project URL and publishable key.'
+} else {
+  try {
+    const parsedUrl = new URL(supabaseUrl)
+    if (!['https:', 'http:'].includes(parsedUrl.protocol)) {
+      throw new Error('The Supabase URL must use HTTPS.')
+    }
+    if (parsedUrl.protocol === 'http:' && !['localhost', '127.0.0.1'].includes(parsedUrl.hostname)) {
+      throw new Error('The Supabase URL must use HTTPS outside local development.')
+    }
+
+    supabase = createClient(supabaseUrl, publishableKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
       },
     })
-  : null
+  } catch (error) {
+    supabaseConfigError = error instanceof Error ? error.message : 'The Supabase configuration is invalid.'
+  }
+}
 
+export { supabase, supabaseConfigError }
 export const isSupabaseConfigured = Boolean(supabase)
 
 export async function invokeAdmin(action, values = {}) {
