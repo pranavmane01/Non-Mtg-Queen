@@ -211,6 +211,8 @@ function App() {
           <Route path="/privacy-policy" element={<LegalPage type="privacy" />} />
           <Route path="/terms" element={<LegalPage type="terms" />} />
           <Route path="/risk-disclaimer" element={<LegalPage type="risk" />} />
+          <Route path="/vip-membership" element={<VipMembershipPage brokerReferralUrl={settings.brokerReferralUrl} />} />
+          <Route path="/contact" element={<ContactPage supportEmail={settings.supportEmail} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
@@ -249,7 +251,9 @@ function HomePage({ settings }) {
     ['Our Services', '#services'],
     ['How It Works', '#how-it-works'],
     ['Community', '#community'],
+    ['VIP Membership', '#vip-membership'],
     ['FAQ', '#faq'],
+    ['Contact', '#contact'],
   ]
 
   const featureCards = [
@@ -489,6 +493,22 @@ function HomePage({ settings }) {
           </div>
         </section>
 
+        <section id="vip-membership" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+          <SectionHeader eyebrow="VIP Membership" heading="Access follows verification and admin approval" description="Create an account, submit your broker details from the member dashboard, and wait for a manual review. The private invitation is only returned to approved members." />
+          <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+            <Link to="/vip-membership" className="inline-flex items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-6 py-3 font-semibold text-emerald-200">Learn about membership <ArrowRight size={16} /></Link>
+            <Link to="/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-6 py-3 font-bold text-slate-950">Create a member account</Link>
+          </div>
+        </section>
+
+        <section id="contact" className="border-y border-white/10 bg-[#0a1015]">
+          <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
+            <SectionHeader eyebrow="Contact" heading="Get in touch with the community team" description={settings.supportEmail ? `Email our support team at ${settings.supportEmail}.` : 'Support contact details will appear here when configured by an administrator.'} />
+            {settings.supportEmail && <a href={`mailto:${settings.supportEmail}`} className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-3 font-bold text-slate-950"><Mail size={16} /> Contact support</a>}
+            <Link to="/contact" className="mt-6 ml-0 inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-100 sm:ml-3">Contact details <ArrowRight size={16} /></Link>
+          </div>
+        </section>
+
         <section id="faq" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <SectionHeader eyebrow="FAQ" heading="Frequently asked questions" description="The platform is built around secure onboarding and transparent community access, without fake promises or guaranteed results." />
           <div className="mt-10 space-y-4">
@@ -522,6 +542,8 @@ function HomePage({ settings }) {
                 <li><Link to="/privacy-policy">Privacy Policy</Link></li>
                 <li><Link to="/terms">Terms & Conditions</Link></li>
                 <li><Link to="/risk-disclaimer">Risk Disclaimer</Link></li>
+                <li><Link to="/vip-membership">VIP Membership</Link></li>
+                <li><Link to="/contact">Contact</Link></li>
               </ul>
             </div>
             <div>
@@ -1373,6 +1395,59 @@ function AdminDashboard({ currentUser, users, setUsers, submissions, setSubmissi
             </div>
           </div>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+function VipMembershipPage({ brokerReferralUrl }) {
+  const steps = [
+    'Create and verify your member account.',
+    'Open a broker account using the published referral link.',
+    'Submit your Trader ID and registered broker email from your member dashboard.',
+    'Wait for an administrator to review your submission. Only an approved membership can retrieve the private invitation.',
+  ]
+
+  return (
+    <div className="min-h-screen bg-[#05080B] px-4 py-16 text-slate-100 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl rounded-[32px] border border-emerald-400/20 bg-[#0b1217] p-8 shadow-[0_0_40px_rgba(16,185,129,0.12)]">
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-emerald-200">
+          <ShieldCheck size={14} /> Membership
+        </div>
+        <h1 className="text-4xl font-black tracking-[-0.06em] text-white">VIP Membership</h1>
+        <p className="mt-4 leading-7 text-slate-300">VIP access is subject to manual verification and administrator approval. Registration does not guarantee approval, trading results, or profits.</p>
+        <ol className="mt-8 space-y-4">
+          {steps.map((step, index) => (
+            <li key={step} className="flex gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-sm font-bold text-emerald-200">{index + 1}</span>
+              <span className="leading-6 text-slate-200">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Link to="/register" className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-5 py-3 font-bold text-slate-950">Create an account <ArrowRight size={16} /></Link>
+          <a href={brokerReferralUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-100">Broker registration <ArrowRight size={16} /></a>
+          <Link to="/" className="inline-flex items-center justify-center rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-100">Back to home</Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ContactPage({ supportEmail }) {
+  return (
+    <div className="min-h-screen bg-[#05080B] px-4 py-16 text-slate-100 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl rounded-[32px] border border-white/10 bg-[#0b1217] p-8">
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-emerald-200">
+          <Mail size={14} /> Contact
+        </div>
+        <h1 className="text-4xl font-black tracking-[-0.06em] text-white">Contact NON MTG QUEEN</h1>
+        {supportEmail ? (
+          <p className="mt-4 leading-7 text-slate-300">For account or verification support, email <a className="text-emerald-200 underline" href={`mailto:${supportEmail}`}>{supportEmail}</a>.</p>
+        ) : (
+          <p className="mt-4 leading-7 text-slate-300">A support email address has not been configured yet. Please check back later or use the public community link on the home page.</p>
+        )}
+        <Link to="/" className="mt-8 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-5 py-3 font-bold text-slate-950">Back to home <ArrowRight size={16} /></Link>
       </div>
     </div>
   )

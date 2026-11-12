@@ -87,7 +87,7 @@ The production build variables are only:
 
 Never add a service-role key, Resend key, admin setup secret, webhook secret, or database password to Cloudflare Pages variables or browser code. Add any custom domain to Supabase Auth's site URL/redirect allowlist before using it for authentication.
 
-Push code changes to `main` to trigger an automatic Pages deployment. Verify the deployment status in Cloudflare Pages and test the home page and direct routes such as `/register`, `/admin/login`, and `/admin/settings`. A successful Pages build does not deploy database migrations or Edge Functions.
+Push code changes to `main` to trigger an automatic Pages deployment. Verify the deployment status in Cloudflare Pages and test the home page and direct routes such as `/register`, `/vip-membership`, `/contact`, `/admin/login`, and `/admin/settings`. A successful Pages build does not deploy database migrations or Edge Functions.
 
 ## Manual end-to-end verification
 
