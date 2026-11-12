@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { invokeAdmin, isSupabaseConfigured, supabase, supabaseConfigError } from './lib/supabase'
 import {
@@ -36,12 +36,15 @@ import {
 
 const TELEGRAM_URL = 'https://t.me/+Gfmw8VN2tJhjZTM1'
 const BROKER_URL = 'https://broker-qx.pro/sign-up/?lid=2383209'
+const SUPPORT_EMAIL = 'nonmtgqueen.support@gmail.com'
+const ADMIN_EMAILS = new Set(['pranavmane205@gmail.com', 'queotexsupport@gmail.com'])
+const isAuthorizedAdmin = (user) =>
+  user?.role === 'admin' && ADMIN_EMAILS.has(user.email?.trim().toLowerCase())
 
 const DEFAULT_SETTINGS = {
   brandName: 'NON MTG QUEEN',
   publicTelegramUrl: TELEGRAM_URL,
   brokerReferralUrl: BROKER_URL,
-  supportEmail: '',
 }
 
 function App() {
@@ -64,12 +67,21 @@ function App() {
         if (active) setCurrentUser(null)
         return
       }
+      if (!authUser.email_confirmed_at) {
+        if (active) {
+          setCurrentUser(null)
+          setServiceMessage('Verify your email address before using member or administrator features.')
+        }
+        const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
+        if (signOutError) console.error('Could not clear an unverified session:', signOutError.message)
+        return
+      }
       let data
       let error
       try {
         ({ data, error } = await supabase
           .from('profiles')
-          .select('id, member_id, full_name, email, mobile, role, vip_status, created_at')
+          .select('id, member_id, full_name, email, role, vip_status, created_at')
           .eq('id', authUser.id)
           .maybeSingle())
       } catch (profileError) {
@@ -89,7 +101,6 @@ function App() {
         memberId: data.member_id,
         fullName: data.full_name,
         email: data.email,
-        mobile: data.mobile,
         role: data.role,
         vipStatus: data.vip_status,
         createdAt: data.created_at,
@@ -145,7 +156,6 @@ function App() {
         brandName: data.settings.brand_name || DEFAULT_SETTINGS.brandName,
         publicTelegramUrl: data.settings.public_telegram_url || TELEGRAM_URL,
         brokerReferralUrl: data.settings.broker_referral_url || BROKER_URL,
-        supportEmail: data.settings.support_email || DEFAULT_SETTINGS.supportEmail,
       })
     })
 
@@ -164,7 +174,6 @@ function App() {
           brandName: saved.brand_name || DEFAULT_SETTINGS.brandName,
           publicTelegramUrl: saved.public_telegram_url || TELEGRAM_URL,
           brokerReferralUrl: saved.broker_referral_url || BROKER_URL,
-          supportEmail: saved.support_email || DEFAULT_SETTINGS.supportEmail,
         })}
       />
     </AdminRoute>
@@ -182,8 +191,9 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage settings={settings} />} />
           <Route path="/login" element={<LoginPage setCurrentUser={setCurrentUser} />} />
-          <Route path="/admin/login" element={currentUser?.role === 'admin' ? <Navigate to="/admin" replace /> : <LoginPage setCurrentUser={setCurrentUser} adminOnly />} />
+          <Route path="/admin/login" element={isAuthorizedAdmin(currentUser) ? <Navigate to="/admin" replace /> : <LoginPage setCurrentUser={setCurrentUser} adminOnly />} />
           <Route path="/register" element={<RegisterPage backendReady={backendReady} />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/admin/setup" element={<ProtectedRoute user={currentUser} authReady={authReady}><AdminSetupPage /></ProtectedRoute>} />
           <Route
@@ -212,7 +222,7 @@ function App() {
           <Route path="/terms" element={<LegalPage type="terms" />} />
           <Route path="/risk-disclaimer" element={<LegalPage type="risk" />} />
           <Route path="/vip-membership" element={<VipMembershipPage brokerReferralUrl={settings.brokerReferralUrl} />} />
-          <Route path="/contact" element={<ContactPage supportEmail={settings.supportEmail} />} />
+          <Route path="/contact" element={<ContactPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
@@ -230,7 +240,7 @@ function ProtectedRoute({ user, authReady, children }) {
 
 function AdminRoute({ user, authReady, children }) {
   if (!authReady) return <LoadingPage />
-  if (!user || user.role !== 'admin') {
+  if (!isAuthorizedAdmin(user)) {
     return <Navigate to="/admin/login" replace />
   }
   return children
@@ -503,8 +513,8 @@ function HomePage({ settings }) {
 
         <section id="contact" className="border-y border-white/10 bg-[#0a1015]">
           <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-            <SectionHeader eyebrow="Contact" heading="Get in touch with the community team" description={settings.supportEmail ? `Email our support team at ${settings.supportEmail}.` : 'Support contact details will appear here when configured by an administrator.'} />
-            {settings.supportEmail && <a href={`mailto:${settings.supportEmail}`} className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-3 font-bold text-slate-950"><Mail size={16} /> Contact support</a>}
+            <SectionHeader eyebrow="Contact" heading="Get in touch with the community team" description={`Email our support team at ${SUPPORT_EMAIL}.`} />
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="mt-6 inline-flex items-center gap-2 rounded-full bg-emerald-400 px-5 py-3 font-bold text-slate-950"><Mail size={16} /> Contact support</a>
             <Link to="/contact" className="mt-6 ml-0 inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-100 sm:ml-3">Contact details <ArrowRight size={16} /></Link>
           </div>
         </section>
@@ -557,7 +567,7 @@ function HomePage({ settings }) {
             <div>
               <div className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Contact</div>
               <ul className="space-y-2">
-                <li className="flex items-center gap-2"><Mail size={15} /> {settings.supportEmail || 'Support email to be configured'}</li>
+                <li className="flex items-center gap-2"><Mail size={15} /><a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-emerald-200">{SUPPORT_EMAIL}</a></li>
               </ul>
             </div>
           </div>
@@ -606,16 +616,25 @@ function LoginPage({ setCurrentUser, adminOnly = false }) {
       }
 
       const { data, error: loginError } = await supabase.auth.signInWithPassword({
-        email: form.email,
+        email: form.email.trim().toLowerCase(),
         password: form.password,
       })
       if (loginError || !data.user) {
-        setError(loginError?.message || 'Sign in failed. Please try again.')
+        const unverified = loginError?.code === 'email_not_confirmed'
+          || loginError?.message?.toLowerCase().includes('email not confirmed')
+        setError(unverified
+          ? 'Verify your email address with the six-digit code before signing in.'
+          : loginError?.message || 'Sign in failed. Please try again.')
+        return
+      }
+      if (!data.user.email_confirmed_at) {
+        await supabase.auth.signOut({ scope: 'local' })
+        setError('Verify your email address with the six-digit code before signing in.')
         return
       }
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, member_id, full_name, email, mobile, role, vip_status, created_at')
+        .select('id, member_id, full_name, email, role, vip_status, created_at')
         .eq('id', data.user.id)
         .single()
       if (profileError) {
@@ -627,12 +646,11 @@ function LoginPage({ setCurrentUser, adminOnly = false }) {
         memberId: profile.member_id,
         fullName: profile.full_name,
         email: profile.email,
-        mobile: profile.mobile,
         role: profile.role,
         vipStatus: profile.vip_status,
         createdAt: profile.created_at,
       }
-      if (adminOnly && account.role !== 'admin') {
+      if (adminOnly && !isAuthorizedAdmin(account)) {
         const { error: signOutError } = await supabase.auth.signOut()
         if (signOutError) throw signOutError
         setCurrentUser(null)
@@ -673,23 +691,27 @@ function LoginPage({ setCurrentUser, adminOnly = false }) {
 }
 
 function RegisterPage({ backendReady }) {
+  const navigate = useNavigate()
   const [form, setForm] = useState({
     fullName: '',
     email: '',
-    mobile: '',
     password: '',
     confirmPassword: '',
   })
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
-    setNotice('')
-    if (!form.fullName || !form.email || !form.mobile || !form.password || !form.confirmPassword) {
-      setError('Please complete every field before registering.')
+    const fullName = form.fullName.trim()
+    const email = form.email.trim().toLowerCase()
+    if (!fullName || fullName.length > 120 || !email || !form.password || !form.confirmPassword) {
+      setError('Enter your name, a valid email address, and both password fields.')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.')
       return
     }
 
@@ -698,8 +720,8 @@ function RegisterPage({ backendReady }) {
       return
     }
 
-    if (form.password.length < 8) {
-      setError('Password must contain at least 8 characters.')
+    if (form.password.length < 8 || !/[a-z]/.test(form.password) || !/[A-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
+      setError('Password must contain at least 8 characters, including an uppercase letter, a lowercase letter, and a number.')
       return
     }
 
@@ -710,19 +732,23 @@ function RegisterPage({ backendReady }) {
 
     setLoading(true)
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: form.email,
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
         password: form.password,
         options: {
-          data: { full_name: form.fullName, mobile: form.mobile },
-          emailRedirectTo: `${window.location.origin}/login`,
+          data: { full_name: fullName },
         },
       })
       if (signUpError) {
         setError(signUpError.message)
         return
       }
-      setNotice('Registration received. Check your email and verify your address before signing in. Your Member ID is created securely when your profile is provisioned.')
+      if (data.user?.email_confirmed_at) {
+        await supabase.auth.signOut({ scope: 'local' })
+        setError('Email OTP verification is disabled in Supabase. Enable email confirmations and use the six-digit {{ .Token }} confirmation template before registering.')
+        return
+      }
+      navigate(`/verify-email?email=${encodeURIComponent(email)}`, { replace: true })
     } catch (signUpError) {
       setError(signUpError instanceof Error ? signUpError.message : 'Registration could not be completed. Please try again.')
     } finally {
@@ -735,13 +761,10 @@ function RegisterPage({ backendReady }) {
       <form onSubmit={handleSubmit} className="space-y-5">
         <Field label="Full Name" value={form.fullName} onChange={(value) => setForm((prev) => ({ ...prev, fullName: value }))} />
         <Field label="Email Address" type="email" value={form.email} onChange={(value) => setForm((prev) => ({ ...prev, email: value }))} />
-        <Field label="Mobile Number" value={form.mobile} onChange={(value) => setForm((prev) => ({ ...prev, mobile: value }))} />
         <Field label="Password" type="password" value={form.password} onChange={(value) => setForm((prev) => ({ ...prev, password: value }))} />
         <Field label="Confirm Password" type="password" value={form.confirmPassword} onChange={(value) => setForm((prev) => ({ ...prev, confirmPassword: value }))} />
 
         {error ? <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div> : null}
-        {notice ? <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{notice}</div> : null}
-
         <button type="submit" disabled={loading || !backendReady} className="w-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-4 py-3 font-bold text-slate-950 shadow-[0_0_25px_rgba(52,211,153,0.28)] disabled:cursor-not-allowed disabled:opacity-50">
           {loading ? 'CREATING ACCOUNT…' : backendReady ? 'REGISTER NOW' : 'BACKEND SETUP REQUIRED'}
         </button>
@@ -750,6 +773,111 @@ function RegisterPage({ backendReady }) {
       <div className="mt-6 text-center text-sm text-slate-300">
         Already have an account? <Link to="/login" className="text-emerald-300 hover:text-emerald-200">Login here</Link>
       </div>
+    </AuthShell>
+  )
+}
+
+function VerifyEmailPage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const email = (searchParams.get('email') || '').trim().toLowerCase()
+  const [token, setToken] = useState('')
+  const [secondsLeft, setSecondsLeft] = useState(60)
+  const [verified, setVerified] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return undefined
+    const timer = window.setTimeout(() => setSecondsLeft((seconds) => seconds - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [secondsLeft])
+
+  const verifyEmail = async (event) => {
+    event.preventDefault()
+    setError('')
+    if (!supabase || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('The verification email is missing or invalid. Return to registration and try again.')
+      return
+    }
+    if (!/^\d{6}$/.test(token.trim())) {
+      setError('Enter the six-digit verification code from your email.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: token.trim(),
+        type: 'signup',
+      })
+      if (verifyError) {
+        setError(verifyError.message.toLowerCase().includes('expired')
+          ? 'That code has expired. Request a new code and try again.'
+          : 'That code is invalid or expired. Check the email and try again, or request a new code.')
+        return
+      }
+      if (!data.user?.email_confirmed_at) {
+        setError('Email verification could not be confirmed. Request a new code and try again.')
+        return
+      }
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
+      if (signOutError) throw signOutError
+      setVerified(true)
+      setNotice('Your email is verified. You can now sign in to your member account.')
+    } catch (verificationError) {
+      setError(verificationError instanceof Error ? verificationError.message : 'Email verification failed. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resendCode = async () => {
+    setError('')
+    setNotice('')
+    if (!supabase || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('The verification email is missing or invalid. Return to registration and try again.')
+      return
+    }
+    setLoading(true)
+    try {
+      const { error: resendError } = await supabase.auth.resend({ type: 'signup', email })
+      if (resendError) throw resendError
+      setSecondsLeft(60)
+      setNotice('A new verification code has been sent. Check your inbox and spam folder.')
+    } catch (resendError) {
+      setError(resendError instanceof Error ? resendError.message : 'Could not resend the verification code.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <AuthShell title={verified ? 'Email verified' : 'Verify your email'} subtitle={verified ? 'Your account is ready for member login' : 'Enter the six-digit code sent to your email address'}>
+      {verified ? (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-100">{notice}</div>
+          <button type="button" onClick={() => navigate('/login', { replace: true })} className="w-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-4 py-3 font-bold text-slate-950">GO TO LOGIN</button>
+        </div>
+      ) : (
+        <>
+          <form onSubmit={verifyEmail} className="space-y-5">
+            <p className="break-all text-center text-sm text-slate-300">{email || 'No email address was provided'}</p>
+            <Field label="Six-digit verification code" type="text" value={token} onChange={(value) => setToken(value.replace(/\D/g, '').slice(0, 6))} required />
+            {error && <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>}
+            {notice && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{notice}</div>}
+            <button type="submit" disabled={loading} className="w-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-4 py-3 font-bold text-slate-950 disabled:opacity-60">
+              {loading ? 'VERIFYING…' : 'VERIFY EMAIL'}
+            </button>
+          </form>
+          <button type="button" onClick={resendCode} disabled={loading || secondsLeft > 0} className="mt-4 w-full text-sm text-emerald-200 disabled:cursor-not-allowed disabled:text-slate-500">
+            {secondsLeft > 0 ? `Resend code in ${secondsLeft}s` : 'Resend verification code'}
+          </button>
+        </>
+      )}
+      {!verified && <div className="mt-6 text-center text-sm text-slate-300">Wrong email? <Link to="/register" className="text-emerald-300 hover:text-emerald-200">Return to registration</Link></div>}
     </AuthShell>
   )
 }
@@ -817,7 +945,7 @@ function AdminSetupPage() {
     setLoading(true)
     try {
       await invokeAdmin('bootstrap_admin', { setupSecret })
-      setNotice('Your account is now the first administrator. Sign out and sign in again to refresh your role.')
+      setNotice('Administrator access was configured. Sign out and sign in again to refresh your role. Repeat setup for the second authorized administrator before removing the setup secret.')
     } catch (setupError) {
       setError(setupError.message)
     } finally {
@@ -828,7 +956,7 @@ function AdminSetupPage() {
   return (
     <AuthShell title="First administrator setup" subtitle="One-time server-authorized setup for an existing verified account">
       <form onSubmit={handleSubmit} className="space-y-5">
-        <p className="text-sm leading-6 text-slate-300">Sign in to the member account you want to make the initial admin, then enter the one-time setup secret configured in Supabase Edge Function secrets.</p>
+        <p className="text-sm leading-6 text-slate-300">Sign in with one of the two authorized administrator email addresses, verify it, and enter the setup secret configured in Supabase Edge Function secrets. Repeat for the second authorized account before removing the secret.</p>
         <Field label="One-time setup secret" type="password" value={setupSecret} onChange={setSetupSecret} />
         {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>}
         {notice && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{notice}</div>}
@@ -1363,7 +1491,6 @@ function AdminDashboard({ currentUser, users, setUsers, submissions, setSubmissi
               <Field label="Public Telegram URL" value={settings.publicTelegramUrl} onChange={(value) => setSettings((prev) => ({ ...prev, publicTelegramUrl: value }))} />
               <Field label="Broker Referral URL" value={settings.brokerReferralUrl} onChange={(value) => setSettings((prev) => ({ ...prev, brokerReferralUrl: value }))} />
               <Field label="Brand Name" value={settings.brandName} onChange={(value) => setSettings((prev) => ({ ...prev, brandName: value }))} />
-              <Field label="Support Contact Email" value={settings.supportEmail} onChange={(value) => setSettings((prev) => ({ ...prev, supportEmail: value }))} />
             </div>
           </div>
         </div>
@@ -1379,7 +1506,6 @@ function AdminDashboard({ currentUser, users, setUsers, submissions, setSubmissi
                 <div><span className="text-slate-400">Full Name:</span> {selectedProfile.fullName}</div>
                 <div><span className="text-slate-400">Member ID:</span> {selectedProfile.memberId}</div>
                 <div><span className="text-slate-400">Email:</span> {selectedProfile.email}</div>
-                <div><span className="text-slate-400">Mobile Number:</span> {selectedProfile.mobile}</div>
                 <div><span className="text-slate-400">Broker Name:</span> {selectedProfile.submission?.brokerName || 'Not submitted'}</div>
                 <div><span className="text-slate-400">Trader ID:</span> {selectedProfile.submission?.traderId || 'Not submitted'}</div>
                 <div><span className="text-slate-400">Current Status:</span> {selectedProfile.submission?.status || selectedProfile.vipStatus || 'NOT_SUBMITTED'}</div>
@@ -1434,7 +1560,7 @@ function VipMembershipPage({ brokerReferralUrl }) {
   )
 }
 
-function ContactPage({ supportEmail }) {
+function ContactPage() {
   return (
     <div className="min-h-screen bg-[#05080B] px-4 py-16 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl rounded-[32px] border border-white/10 bg-[#0b1217] p-8">
@@ -1442,11 +1568,7 @@ function ContactPage({ supportEmail }) {
           <Mail size={14} /> Contact
         </div>
         <h1 className="text-4xl font-black tracking-[-0.06em] text-white">Contact NON MTG QUEEN</h1>
-        {supportEmail ? (
-          <p className="mt-4 leading-7 text-slate-300">For account or verification support, email <a className="text-emerald-200 underline" href={`mailto:${supportEmail}`}>{supportEmail}</a>.</p>
-        ) : (
-          <p className="mt-4 leading-7 text-slate-300">A support email address has not been configured yet. Please check back later or use the public community link on the home page.</p>
-        )}
+        <p className="mt-4 leading-7 text-slate-300">For account or verification support, email <a className="text-emerald-200 underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.</p>
         <Link to="/" className="mt-8 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-5 py-3 font-bold text-slate-950">Back to home <ArrowRight size={16} /></Link>
       </div>
     </div>

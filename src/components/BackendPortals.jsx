@@ -58,7 +58,6 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [profileName, setProfileName] = useState(currentUser.fullName || '')
-  const [profileMobile, setProfileMobile] = useState(currentUser.mobile || '')
   const [savingProfile, setSavingProfile] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -208,9 +207,8 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
     setError('')
     setSuccess('')
     const fullName = profileName.trim()
-    const mobile = profileMobile.trim()
-    if (!fullName || fullName.length > 120 || mobile.length > 40) {
-      setError('Enter a name of 1-120 characters and a mobile number of no more than 40 characters.')
+    if (!fullName || fullName.length > 120) {
+      setError('Enter a name of 1-120 characters.')
       return
     }
 
@@ -218,10 +216,10 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
     try {
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ full_name: fullName, mobile: mobile || null })
+        .update({ full_name: fullName })
         .eq('id', currentUser.id)
       if (updateError) throw updateError
-      setCurrentUser((user) => user?.id === currentUser.id ? { ...user, fullName, mobile } : user)
+      setCurrentUser((user) => user?.id === currentUser.id ? { ...user, fullName } : user)
       setSuccess('Profile details saved.')
     } catch (profileError) {
       setError(profileError instanceof Error ? profileError.message : 'Could not save your profile details.')
@@ -272,10 +270,9 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
 
           <section className={cardClass}>
             <h2 className="text-xl font-bold text-white">Profile details</h2>
-            <p className="mt-2 text-sm text-slate-300">Update your name and mobile number. Your email and Member ID are managed by the account system.</p>
-            <form onSubmit={saveProfile} className="mt-5 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <p className="mt-2 text-sm text-slate-300">Update your name. Your email and Member ID are managed by the account system.</p>
+            <form onSubmit={saveProfile} className="mt-5 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
               <Field label="Full Name" value={profileName} onChange={setProfileName} required disabled={savingProfile} />
-              <Field label="Mobile Number" value={profileMobile} onChange={setProfileMobile} disabled={savingProfile} />
               <button type="submit" disabled={savingProfile} className="rounded-full bg-emerald-400 px-5 py-3 font-bold text-slate-950 disabled:opacity-60">
                 {savingProfile ? 'SAVING…' : 'SAVE PROFILE'}
               </button>
@@ -423,7 +420,7 @@ export function AdminPanel({ currentUser, setCurrentUser, updatePublicSettings }
     setError('')
     try {
       const [profilesResult, submissionsResult, notificationsResult, historyResult] = await Promise.all([
-        supabase.from('profiles').select('id, member_id, full_name, email, mobile, role, vip_status, created_at').neq('role', 'admin').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id, member_id, full_name, email, role, vip_status, created_at').neq('role', 'admin').order('created_at', { ascending: false }),
         supabase.from('trader_submissions').select('id, user_id, broker_name, broker_email, trader_id, screenshot_path, status, rejection_reason, resubmission_requested, submitted_at, reviewed_at, reviewed_by').order('submitted_at', { ascending: false }),
         supabase.from('notifications').select('id, user_id, title, message, is_read, created_at').order('created_at', { ascending: false }).limit(100),
         supabase.from('verification_history').select('id, submission_id, admin_id, action, remarks, created_at').order('created_at', { ascending: false }).limit(200),
@@ -603,7 +600,7 @@ export function AdminPanel({ currentUser, setCurrentUser, updatePublicSettings }
                 <tbody>
                   {filtered.map((member) => (
                     <tr key={member.id} className="border-b border-white/10 align-top">
-                      <td className="px-3 py-4"><button type="button" onClick={() => setSelected(member)} className="font-semibold text-white hover:text-emerald-200">{member.full_name}</button><div className="mt-1 text-xs text-slate-500">{member.mobile || 'No mobile provided'}</div></td>
+                      <td className="px-3 py-4"><button type="button" onClick={() => setSelected(member)} className="font-semibold text-white hover:text-emerald-200">{member.full_name}</button></td>
                       <td className="px-3 py-4"><div>{member.email}</div><div className="mt-1 text-xs text-slate-500">{member.member_id}</div></td>
                       <td className="px-3 py-4"><div>{member.submission?.broker_name || '—'}</div><div className="mt-1 text-xs text-slate-400">{member.submission?.trader_id || 'No submission'}</div>{member.submission?.broker_email && <div className="mt-1 text-xs text-slate-500">{member.submission.broker_email}</div>}</td>
                       <td className="px-3 py-4 text-xs">{member.submission ? new Date(member.submission.submitted_at).toLocaleDateString() : '—'}</td>
@@ -634,7 +631,6 @@ export function AdminPanel({ currentUser, setCurrentUser, updatePublicSettings }
                 ['Public Telegram URL', 'public_telegram_url'],
                 ['Broker referral URL', 'broker_referral_url'],
                 ['Private VIP Telegram URL', 'private_vip_telegram_url'],
-                ['Support email', 'support_email'],
               ].map(([label, key]) => <Field key={key} label={label} value={settings[key] || ''} onChange={(value) => setSettings((prev) => ({ ...prev, [key]: value }))} />)}
               <p className="text-xs leading-5 text-amber-100/80">The private invitation is only returned by an authenticated server function to members whose VIP status is approved.</p>
               <p className="text-xs leading-5 text-slate-400">Email delivery status is shown after submissions and reviews. Configure Resend credentials and a verified sender as server-side Supabase Function secrets to enable email notifications.</p>
@@ -651,7 +647,7 @@ export function AdminPanel({ currentUser, setCurrentUser, updatePublicSettings }
           </div>
         </section>
 
-        {selected && <div className={`mt-8 ${cardClass}`}><div className="flex items-center justify-between"><h2 className="text-xl font-bold text-white">Member profile & submission</h2><button type="button" onClick={() => setSelected(null)} className="text-sm text-slate-300">Close</button></div><div className="mt-5 grid gap-6 md:grid-cols-2"><div className="space-y-3 text-sm text-slate-200"><div>Full name: {selected.full_name}</div><div>Member ID: {selected.member_id}</div><div>Email: {selected.email}</div><div>Mobile: {selected.mobile || 'Not provided'}</div><div>Registered: {new Date(selected.created_at).toLocaleString()}</div><div>Broker: {selected.submission?.broker_name || 'No submission'}</div><div>Registered broker email: {selected.submission?.broker_email || 'Not provided'}</div><div>Trader ID: {selected.submission?.trader_id || 'No submission'}</div><div>Submission date: {selected.submission ? new Date(selected.submission.submitted_at).toLocaleString() : '—'}</div><div>Verification status: {selected.status}</div><div>Admin remarks: {selected.submission?.rejection_reason || '—'}</div></div><div className="rounded-2xl border border-white/10 bg-white/5 p-5"><h3 className="font-semibold text-white">Verification screenshot</h3>{selected.submission?.screenshot_path ? <button type="button" onClick={() => viewScreenshot(selected.submission.id)} className="mt-4 rounded-full border border-emerald-400/30 px-4 py-2 text-sm text-emerald-200">Create secure 60-second view link</button> : <p className="mt-4 text-sm text-slate-400">No screenshot uploaded.</p>}</div></div><div className="mt-6"><h3 className="font-semibold text-white">Verification history</h3><div className="mt-3 space-y-2">{selectedHistory.map((item) => <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm"><div>{item.action} · {new Date(item.created_at).toLocaleString()}</div>{item.remarks && <div className="mt-1 text-slate-400">{item.remarks}</div>}</div>)}{!selectedHistory.length && <p className="text-sm text-slate-400">No review history recorded.</p>}</div></div></div>}
+        {selected && <div className={`mt-8 ${cardClass}`}><div className="flex items-center justify-between"><h2 className="text-xl font-bold text-white">Member profile & submission</h2><button type="button" onClick={() => setSelected(null)} className="text-sm text-slate-300">Close</button></div><div className="mt-5 grid gap-6 md:grid-cols-2"><div className="space-y-3 text-sm text-slate-200"><div>Full name: {selected.full_name}</div><div>Member ID: {selected.member_id}</div><div>Email: {selected.email}</div><div>Registered: {new Date(selected.created_at).toLocaleString()}</div><div>Broker: {selected.submission?.broker_name || 'No submission'}</div><div>Registered broker email: {selected.submission?.broker_email || 'Not provided'}</div><div>Trader ID: {selected.submission?.trader_id || 'No submission'}</div><div>Submission date: {selected.submission ? new Date(selected.submission.submitted_at).toLocaleString() : '—'}</div><div>Verification status: {selected.status}</div><div>Admin remarks: {selected.submission?.rejection_reason || '—'}</div></div><div className="rounded-2xl border border-white/10 bg-white/5 p-5"><h3 className="font-semibold text-white">Verification screenshot</h3>{selected.submission?.screenshot_path ? <button type="button" onClick={() => viewScreenshot(selected.submission.id)} className="mt-4 rounded-full border border-emerald-400/30 px-4 py-2 text-sm text-emerald-200">Create secure 60-second view link</button> : <p className="mt-4 text-sm text-slate-400">No screenshot uploaded.</p>}</div></div><div className="mt-6"><h3 className="font-semibold text-white">Verification history</h3><div className="mt-3 space-y-2">{selectedHistory.map((item) => <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm"><div>{item.action} · {new Date(item.created_at).toLocaleString()}</div>{item.remarks && <div className="mt-1 text-slate-400">{item.remarks}</div>}</div>)}{!selectedHistory.length && <p className="text-sm text-slate-400">No review history recorded.</p>}</div></div></div>}
         </div>
       </div>
     </div>

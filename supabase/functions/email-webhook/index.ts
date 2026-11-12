@@ -1,10 +1,17 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-webhook-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
+const allowedOrigins = new Set([
+  'https://non-mtg-queen.pages.dev',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+])
+const SUPPORT_EMAIL = 'nonmtgqueen.support@gmail.com'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -54,7 +61,7 @@ async function matchesSecret(received: string, expected: string) {
   return matches
 }
 
-Deno.serve(async (request) => {
+const handleRequest = async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
   const expectedSecret = Deno.env.get('DATABASE_WEBHOOK_SECRET')
@@ -107,7 +114,7 @@ Deno.serve(async (request) => {
       from,
       to: [event.record.email],
       subject: `Welcome to ${settings.brand_name || 'NON MTG QUEEN'}`,
-      html: `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">Welcome to the community</h1><p>Hello ${name},</p><p>Your account has been created. Please use the separate verification email from our sign-in provider to confirm your email address before logging in.</p><p style="color:#9ca3af">Never share your broker password or one-time codes.</p></div></div>`,
+      html: `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">Welcome to the community</h1><p>Hello ${name},</p><p>Your email address is verified and your member profile is ready. Sign in to view your Member ID and continue setup.</p><p style="color:#9ca3af">Never share your broker password or one-time codes.</p><p style="color:#9ca3af">Questions? Contact <a href="mailto:${SUPPORT_EMAIL}" style="color:#6ee7b7">${SUPPORT_EMAIL}</a>.</p></div></div>`,
     }),
   }).catch((error: unknown) => {
     console.error('Resend registration email failed:', error)
@@ -119,7 +126,7 @@ Deno.serve(async (request) => {
     return json({ error: 'Registration notification email could not be sent' }, 502)
   }
   if (settings.admin_email) {
-    const adminHtml = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">New member registration</h1><p>${name} (${email}) has registered and needs email verification.</p></div></div>`
+    const adminHtml = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">New verified member</h1><p>${name} (${email}) has verified an account and is ready to use the member portal.</p><p>Customer support: <a href="mailto:${SUPPORT_EMAIL}" style="color:#6ee7b7">${SUPPORT_EMAIL}</a>.</p></div></div>`
     const adminSent = await sendEmail(
       apiKey,
       from,
@@ -130,4 +137,20 @@ Deno.serve(async (request) => {
     if (!adminSent) return json({ error: 'Member welcome email was sent, but the admin notification could not be sent' }, 502)
   }
   return json({ success: true, emailConfigured: true, emailSent: true, adminNotificationSent: Boolean(settings.admin_email) })
+}
+
+Deno.serve(async (request) => {
+  const response = await handleRequest(request)
+  const headers = new Headers(response.headers)
+  headers.delete('Access-Control-Allow-Origin')
+  const origin = request.headers.get('origin')
+  if (origin && allowedOrigins.has(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin)
+    headers.set('Vary', 'Origin')
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 })

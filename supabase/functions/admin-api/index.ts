@@ -1,10 +1,20 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
+const allowedOrigins = new Set([
+  'https://non-mtg-queen.pages.dev',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+])
+const ADMIN_EMAILS = new Set(['pranavmane205@gmail.com', 'queotexsupport@gmail.com'])
+const SUPPORT_EMAIL = 'nonmtgqueen.support@gmail.com'
+const isAuthorizedAdminEmail = (email: string | undefined) =>
+  Boolean(email && ADMIN_EMAILS.has(email.trim().toLowerCase()))
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -82,7 +92,7 @@ async function sendReviewEmails(
           subject: 'Please resubmit your Trader ID',
           message: 'An administrator has requested a corrected Trader ID submission.',
         }
-  const html = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">${copy.subject}</h1><p>Hello ${safeName},</p><p>${copy.message}</p><p style="color:#9ca3af">Trading involves financial risk. Membership does not guarantee trading success.</p></div></div>`
+  const html = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">${brand}</p><h1 style="color:#fff">${copy.subject}</h1><p>Hello ${safeName},</p><p>${copy.message}</p><p style="color:#9ca3af">Trading involves financial risk. Membership does not guarantee trading success.</p><p style="color:#9ca3af">Questions? Contact <a href="mailto:${SUPPORT_EMAIL}" style="color:#6ee7b7">${SUPPORT_EMAIL}</a>.</p></div></div>`
   const memberResult = await sendEmail(memberEmail, copy.subject, html)
   const adminResult = adminEmail
     ? await sendEmail(adminEmail, `${brand}: ${copy.subject}`, html)
@@ -90,7 +100,7 @@ async function sendReviewEmails(
   return { configured: memberResult.configured, sent: memberResult.sent && (!adminEmail || adminResult.sent) }
 }
 
-Deno.serve(async (request) => {
+const handleRequest = async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
@@ -105,6 +115,7 @@ Deno.serve(async (request) => {
   const { data: userResult, error: authError } = await callerClient.auth.getUser(token)
   if (authError || !userResult.user) return json({ error: 'Invalid authentication token' }, 401)
   const caller = userResult.user
+  if (!caller.email_confirmed_at) return json({ error: 'Verify your email address before using this service' }, 403)
 
   let input: Record<string, unknown>
   try {
@@ -122,12 +133,12 @@ Deno.serve(async (request) => {
   if (profileError || !callerProfile) return json({ error: 'Member profile was not found' }, 403)
 
   if (action === 'bootstrap_admin') {
+    if (!isAuthorizedAdminEmail(caller.email)) return json({ error: 'This account is not eligible for administrator setup' }, 403)
     const setupSecret = Deno.env.get('ADMIN_SETUP_SECRET')
     if (!setupSecret) return json({ error: 'First-admin setup is not configured on the server' }, 503)
     const suppliedSecret = typeof input.setupSecret === 'string' ? input.setupSecret : ''
-    if (!caller.email_confirmed_at || suppliedSecret.length > 256) {
-      return json({ error: 'Verify your email and provide the one-time setup code' }, 403)
-    }
+    if (callerProfile.role === 'admin') return json({ error: 'This account is already an administrator' }, 409)
+    if (suppliedSecret.length > 256) return json({ error: 'Provide the one-time setup code' }, 403)
     const encoder = new TextEncoder()
     const [expected, supplied] = await Promise.all([
       crypto.subtle.digest('SHA-256', encoder.encode(setupSecret)),
@@ -143,7 +154,7 @@ Deno.serve(async (request) => {
     const { error: promoteError } = await service.rpc('bootstrap_first_admin', {
       p_user_id: caller.id,
     })
-    if (promoteError) return json({ error: promoteError.message }, promoteError.message.includes('already configured') ? 409 : 500)
+    if (promoteError) return json({ error: promoteError.message }, /already configured|maximum number/i.test(promoteError.message) ? 409 : 500)
     return json({ success: true })
   }
 
@@ -184,7 +195,7 @@ Deno.serve(async (request) => {
     const adminEmail = settings.admin_email
     const safeName = escapeHtml(callerProfile.full_name)
     const safeId = escapeHtml(submission.trader_id)
-    const html = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">NON MTG QUEEN</p><h1 style="color:#fff">Trader ID submitted</h1><p>Hello ${safeName}, your submission is now pending admin verification.</p><p>Reference: ${escapeHtml(submission.id)}</p><p style="color:#9ca3af">Never share your broker password or one-time codes.</p></div></div>`
+    const html = `<div style="background:#071013;color:#e5e7eb;padding:32px;font-family:Arial,sans-serif"><div style="max-width:560px;margin:auto;border:1px solid #1f3b33;border-radius:20px;padding:28px;background:#0b1518"><p style="color:#6ee7b7;letter-spacing:3px">NON MTG QUEEN</p><h1 style="color:#fff">Trader ID submitted</h1><p>Hello ${safeName}, your submission is now pending admin verification.</p><p>Reference: ${escapeHtml(submission.id)}</p><p style="color:#9ca3af">Never share your broker password or one-time codes.</p><p style="color:#9ca3af">Questions? Contact <a href="mailto:${SUPPORT_EMAIL}" style="color:#6ee7b7">${SUPPORT_EMAIL}</a>.</p></div></div>`
     const memberResult = await sendEmail(caller.email ?? callerProfile.email, 'Trader ID received for verification', html)
     const adminResult = adminEmail
       ? await sendEmail(
@@ -201,7 +212,7 @@ Deno.serve(async (request) => {
   }
 
   if (action === 'get_signed_screenshot') {
-    if (callerProfile.role !== 'admin') return json({ error: 'Administrator access required' }, 403)
+    if (callerProfile.role !== 'admin' || !isAuthorizedAdminEmail(caller.email)) return json({ error: 'Administrator access required' }, 403)
     if (typeof input.submissionId !== 'string') return json({ error: 'Submission ID is required' }, 400)
     const { data: submission, error } = await service
       .from('trader_submissions')
@@ -216,12 +227,12 @@ Deno.serve(async (request) => {
     return json({ signedUrl: signed.signedUrl })
   }
 
-  if (callerProfile.role !== 'admin') return json({ error: 'Administrator access required' }, 403)
+  if (callerProfile.role !== 'admin' || !isAuthorizedAdminEmail(caller.email)) return json({ error: 'Administrator access required' }, 403)
 
   if (action === 'get_settings') {
     const { data, error } = await service
       .from('admin_settings')
-      .select('admin_email, brand_name, public_telegram_url, broker_referral_url, private_vip_telegram_url, support_email')
+      .select('admin_email, brand_name, public_telegram_url, broker_referral_url, private_vip_telegram_url')
       .eq('singleton', true)
       .single()
     if (error) return json({ error: 'Could not load settings' }, 500)
@@ -243,7 +254,7 @@ Deno.serve(async (request) => {
         return json({ error: `Invalid ${key}` }, 400)
       }
     }
-    for (const key of ['admin_email', 'support_email'] as const) {
+    for (const key of ['admin_email'] as const) {
       const value = settings[key]
       if (value !== null && value !== '' && (typeof value !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) {
         return json({ error: `Invalid ${key}` }, 400)
@@ -255,7 +266,7 @@ Deno.serve(async (request) => {
       public_telegram_url: settings.public_telegram_url,
       broker_referral_url: settings.broker_referral_url,
       private_vip_telegram_url: settings.private_vip_telegram_url || null,
-      support_email: typeof settings.support_email === 'string' ? settings.support_email.trim() || null : null,
+      support_email: SUPPORT_EMAIL,
       updated_at: new Date().toISOString(),
     }
     if (typeof updates.public_telegram_url !== 'string' || typeof updates.broker_referral_url !== 'string') {
@@ -321,4 +332,20 @@ Deno.serve(async (request) => {
   }
 
   return json({ error: 'Unknown action' }, 400)
+}
+
+Deno.serve(async (request) => {
+  const response = await handleRequest(request)
+  const headers = new Headers(response.headers)
+  headers.delete('Access-Control-Allow-Origin')
+  const origin = request.headers.get('origin')
+  if (origin && allowedOrigins.has(origin)) {
+    headers.set('Access-Control-Allow-Origin', origin)
+    headers.set('Vary', 'Origin')
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 })
