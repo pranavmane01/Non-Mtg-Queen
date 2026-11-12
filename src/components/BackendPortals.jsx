@@ -137,11 +137,12 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
     try {
       if (screenshot) {
         const extension = screenshot.type === 'image/jpeg' ? 'jpg' : screenshot.type.split('/')[1]
-        uploadedPath = `${currentUser.id}/${crypto.randomUUID()}.${extension}`
+        const screenshotPath = `${currentUser.id}/${crypto.randomUUID()}.${extension}`
         const { error: uploadError } = await supabase.storage
           .from('trader-verification')
-          .upload(uploadedPath, screenshot, { contentType: screenshot.type, upsert: false })
+          .upload(screenshotPath, screenshot, { contentType: screenshot.type, upsert: false })
         if (uploadError) throw uploadError
+        uploadedPath = screenshotPath
       }
 
       const { data: submission, error: submissionError } = await supabase
@@ -172,11 +173,10 @@ export function MemberDashboard({ currentUser, setCurrentUser, settings }) {
         setSuccess('Submission saved. Email notification failed; the admin can still review it in the dashboard.')
       }
     } catch (submitError) {
-      if (uploadedPath) {
-        const { error: cleanupError } = await supabase.storage.from('trader-verification').remove([uploadedPath])
-        if (cleanupError) console.error('Could not remove unreferenced screenshot:', cleanupError.message)
-      }
-      setError(submitError.message)
+      const message = submitError instanceof Error ? submitError.message : 'Could not submit your Trader ID. Please try again.'
+      setError(uploadedPath
+        ? `${message} The uploaded screenshot may remain in private storage if the submission was not saved.`
+        : message)
     } finally {
       setSubmitting(false)
     }

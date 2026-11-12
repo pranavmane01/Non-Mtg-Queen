@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { invokeAdmin, isSupabaseConfigured, supabase, supabaseConfigError } from './lib/supabase'
+import { isSupabaseConfigured, supabase, supabaseConfigError } from './lib/supabase'
 import {
   AdminPanel,
   MemberDashboard as SecureMemberDashboard,
@@ -37,9 +37,8 @@ import {
 const TELEGRAM_URL = 'https://t.me/+Gfmw8VN2tJhjZTM1'
 const BROKER_URL = 'https://broker-qx.pro/sign-up/?lid=2383209'
 const SUPPORT_EMAIL = 'nonmtgqueen.support@gmail.com'
-const ADMIN_EMAILS = new Set(['pranavmane205@gmail.com', 'queotexsupport@gmail.com'])
 const isAuthorizedAdmin = (user) =>
-  user?.role === 'admin' && ADMIN_EMAILS.has(user.email?.trim().toLowerCase())
+  user?.role === 'admin' && user?.isAdmin === true
 
 const DEFAULT_SETTINGS = {
   brandName: 'NON MTG QUEEN',
@@ -96,12 +95,15 @@ function App() {
         setServiceMessage(error?.message || 'Your member profile is not available. Apply the Supabase migration and try signing in again.')
         return
       }
+      const { data: adminStatus, error: adminStatusError } = await supabase.rpc('is_admin')
+      if (adminStatusError) console.error('Could not verify administrator role:', adminStatusError.message)
       setCurrentUser({
         id: data.id,
         memberId: data.member_id,
         fullName: data.full_name,
         email: data.email,
         role: data.role,
+        isAdmin: !adminStatusError && adminStatus === true,
         vipStatus: data.vip_status,
         createdAt: data.created_at,
       })
@@ -195,7 +197,6 @@ function App() {
           <Route path="/register" element={<RegisterPage backendReady={backendReady} />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/admin/setup" element={<ProtectedRoute user={currentUser} authReady={authReady}><AdminSetupPage /></ProtectedRoute>} />
           <Route
             path="/dashboard"
             element={
@@ -218,6 +219,7 @@ function App() {
           />
           <Route path="/admin" element={adminPanel} />
           <Route path="/admin/:section" element={adminPanel} />
+          <Route path="/admin/*" element={adminPanel} />
           <Route path="/privacy-policy" element={<LegalPage type="privacy" />} />
           <Route path="/terms" element={<LegalPage type="terms" />} />
           <Route path="/risk-disclaimer" element={<LegalPage type="risk" />} />
@@ -647,9 +649,13 @@ function LoginPage({ setCurrentUser, adminOnly = false }) {
         fullName: profile.full_name,
         email: profile.email,
         role: profile.role,
+        isAdmin: false,
         vipStatus: profile.vip_status,
         createdAt: profile.created_at,
       }
+      const { data: adminStatus, error: adminStatusError } = await supabase.rpc('is_admin')
+      if (adminOnly && adminStatusError) throw adminStatusError
+      account.isAdmin = !adminStatusError && adminStatus === true
       if (adminOnly && !isAuthorizedAdmin(account)) {
         const { error: signOutError } = await supabase.auth.signOut()
         if (signOutError) throw signOutError
@@ -658,7 +664,7 @@ function LoginPage({ setCurrentUser, adminOnly = false }) {
         return
       }
       setCurrentUser(account)
-      navigate(account.role === 'admin' ? '/admin' : '/dashboard')
+      navigate(account.isAdmin ? '/admin' : '/dashboard')
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : 'Sign in failed. Please try again.')
     } finally {
@@ -926,42 +932,6 @@ function ResetPasswordPage() {
         {message && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{message}</div>}
         <button type="submit" disabled={loading} className="w-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-4 py-3 font-bold text-slate-950 disabled:opacity-60">
           {loading ? 'UPDATING…' : 'UPDATE PASSWORD'}
-        </button>
-      </form>
-    </AuthShell>
-  )
-}
-
-function AdminSetupPage() {
-  const [setupSecret, setSetupSecret] = useState('')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (event) => {
-    event.preventDefault()
-    setError('')
-    setNotice('')
-    setLoading(true)
-    try {
-      await invokeAdmin('bootstrap_admin', { setupSecret })
-      setNotice('Administrator access was configured. Sign out and sign in again to refresh your role. Repeat setup for the second authorized administrator before removing the setup secret.')
-    } catch (setupError) {
-      setError(setupError.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <AuthShell title="First administrator setup" subtitle="One-time server-authorized setup for an existing verified account">
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <p className="text-sm leading-6 text-slate-300">Sign in with one of the two authorized administrator email addresses, verify it, and enter the setup secret configured in Supabase Edge Function secrets. Repeat for the second authorized account before removing the secret.</p>
-        <Field label="One-time setup secret" type="password" value={setupSecret} onChange={setSetupSecret} />
-        {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>}
-        {notice && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">{notice}</div>}
-        <button type="submit" disabled={loading} className="w-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300 px-4 py-3 font-bold text-slate-950 disabled:opacity-60">
-          {loading ? 'VERIFYING…' : 'CONFIGURE FIRST ADMIN'}
         </button>
       </form>
     </AuthShell>
